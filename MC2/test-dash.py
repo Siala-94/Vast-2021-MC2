@@ -2,6 +2,7 @@ from dash import Dash, html, dcc, Input, Output
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import os
 
 
 def read_data(data1, data2):
@@ -26,6 +27,29 @@ def read_data(data1, data2):
     df['last4ccnum'] = df['last4ccnum'].astype(str)
 
     return df
+
+
+def read_gps_data(data):
+
+    # Read the GPS data from the CSV file
+    df_gps = pd.read_csv('gps.csv')
+    df_gps['Timestamp'] = pd.to_datetime(
+        df_gps['Timestamp'], format='%m/%d/%Y %H:%M:%S')
+    df_gps.sort_values(by='Timestamp', inplace=True)
+
+    # Read the car assignment data from the CSV file
+    df_car = pd.read_csv('car-assignments.csv')
+
+    # Merge the data frames based on the "id" column
+    df_merged = pd.merge(df_gps, df_car, left_on='id', right_on='CarID')
+
+    df_merged.drop("CarID", axis=1, inplace=True)
+
+    df_merged['date'] = df_merged["Timestamp"].dt.date
+    df_merged['time'] = df_merged["Timestamp"].dt.time
+    df_merged.drop("Timestamp", axis=1, inplace=True)
+
+    return df_merged
 
 
 def getHeatmap(df):
@@ -55,6 +79,7 @@ def get4ccnum(df):
 
 df = read_data("cc_data.csv", "loyalty_data.csv")
 
+df_gps = read_gps_data('gps.csv')
 
 app = Dash(__name__)
 
@@ -110,10 +135,10 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             dcc.Graph(id="scatterplot")
-        ], style={'width': '70%', 'display': 'inline-block'}),
+        ], style={'width': '80%', 'display': 'inline-block'}),
         html.Div([
             dcc.Graph(id="heatmap")
-        ], style={'width': '30%', 'display': 'inline-block'}),
+        ], style={'width': '20%', 'display': 'inline-block'}),
         dcc.Slider(
             id='day-slider',
             max=len(getDates(df))-1,
@@ -123,9 +148,52 @@ app.layout = html.Div([
                    for i, date in enumerate(getDates(df))},
             step=1
         )
+    ]),
+
+    html.Div([
+        dcc.RadioItems(options=[{'label': '3d line Plot', 'value': 'line'},
+                                {'label': '3d Scatter Plot', 'value': 'scatter'}],
+                       id="3dplot"),
+        dcc.Graph(id='line3d')
+
     ])
 
 ])
+
+
+@app.callback(
+    Output('line3d', 'figure'),
+    Input('3dplot', 'value')
+)
+def update_3d(plot):
+    selected_date = getDates(df_gps)[-1]  # Use the last date by default
+    df_filt = df_gps[df_gps['date'] == selected_date]
+
+    fig = None
+    if plot == 'line':
+        fig = px.line_3d(df_filt, x="long", y="lat",
+                         z='time', color="FirstName")
+    else:
+        fig = px.scatter_3d(df_filt, x="long", y="lat",
+                            z="time", color="FirstName")
+        fig.update_traces(marker=dict(size=2))
+    return fig
+
+
+@app.callback(
+    Output('scatter3d', 'figure'),
+    Input('day-slider', 'value')
+)
+def update_scatter3d(date):
+    selected_date = getDates(df_gps)[date]
+    df_filt = df_gps[df_gps['date'] == selected_date]
+
+    fig = px.scatter_3d(df_filt, x="long", y="lat",
+                        z="time", color="FirstName")
+
+    fig.update_traces(marker=dict(size=2))
+
+    return fig
 
 
 @app.callback(
