@@ -136,9 +136,10 @@ app.layout = html.Div([
 def update_heatmap(date, locations):
     selected_date = getDates(df)[date]
 
-    df_filtered = df[df['date'] == selected_date]
-    df_filtered = df_filtered[df_filtered['location'].isin(
-        locations)] if locations else df_filtered
+    df_filt = df[df['date'] == selected_date]
+
+    df_filtered = df_filt[df_filt['location'].isin(
+        locations)] if locations else df_filt
 
     df_count = df_filtered.groupby('location').size().reset_index(name='count')
     df_sorted = df_count.sort_values(by='count', ascending=True)
@@ -173,10 +174,9 @@ def update_heatmap(date, locations):
 def update_plot(date, locations, num, yaxis, xaxis, plot):
     selected_date = getDates(df)[date]
 
-    df_new = df[df['date'] == selected_date]
-
-    df_new = df_new[df_new['location'].isin(
-        locations)] if locations else df_new
+    df_filt = df[df['date'] == selected_date]
+    df_new = df_filt[df_filt['location'].isin(
+        locations)] if locations else df_filt
 
     df_new = df_new[df_new['last4ccnum'].isin(num)] if num else df_new
 
