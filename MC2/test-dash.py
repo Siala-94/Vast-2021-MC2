@@ -2,6 +2,8 @@ from dash import Dash, html, dcc, Input, Output
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import geopandas as gpd
+import datetime
 
 
 def read_data(data1, data2):
@@ -28,13 +30,36 @@ def read_data(data1, data2):
     return df
 
 
+def read_gps_data(data):
+
+    # Read the GPS data from the CSV file
+    df_gps = pd.read_csv('gps.csv')
+    df_gps['Timestamp'] = pd.to_datetime(
+        df_gps['Timestamp'], format='%m/%d/%Y %H:%M:%S')
+    df_gps.sort_values(by='Timestamp', inplace=True)
+
+    # Read the car assignment data from the CSV file
+    df_car = pd.read_csv('car-assignments.csv')
+
+    # Merge the data frames based on the "id" column
+    df_merged = pd.merge(df_gps, df_car, left_on='id', right_on='CarID')
+
+    df_merged.drop("CarID", axis=1, inplace=True)
+
+    df_merged['date'] = df_merged["Timestamp"].dt.date
+    df_merged['time'] = df_merged["Timestamp"].dt.time
+    df_merged.drop("Timestamp", axis=1, inplace=True)
+
+    return df_merged
+
+
 def getHeatmap(df):
     df_sorted = df.sort_values(by='date')
 
     fig = px.density_heatmap(
         df_sorted,
         x="date", y="location",
-        color_continuous_scale='ylorrd',
+        color_continuous_scale='YlOrRd',
         nbinsx=len(df['date'].unique()),
         nbinsy=len(df['location'].unique()))
 
@@ -53,8 +78,17 @@ def get4ccnum(df):
     return df['last4ccnum'].unique()
 
 
+def seconds_to_time(seconds):
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+
+    return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+
+
 df = read_data("cc_data.csv", "loyalty_data.csv")
 
+df_gps = read_gps_data('gps.csv')
 
 app = Dash(__name__)
 
@@ -110,22 +144,113 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             dcc.Graph(id="scatterplot")
-        ], style={'width': '70%', 'display': 'inline-block'}),
+        ], style={'width': '80%', 'display': 'inline-block'}),
         html.Div([
             dcc.Graph(id="heatmap")
-        ], style={'width': '30%', 'display': 'inline-block'}),
+        ], style={'width': '20%', 'display': 'inline-block'}),
         dcc.Slider(
             id='day-slider',
-            max=len(getDates(df))-1,
+            # Subtract 1 to account for zero-based indexing
+            max=len(getDates(df_gps)) - 1,
             min=0,
-            value=len(getDates(df))-1,
+            value=len(getDates(df_gps)) - 1,
             marks={i: str(date.strftime("%b %d"))
-                   for i, date in enumerate(getDates(df))},
+                   for i, date in enumerate(getDates(df_gps))},
             step=1
         )
+
+    ]),
+
+    html.Div([
+        dcc.RadioItems(options=[{'label': '3d line Plot', 'value': 'line'},
+                                {'label': '3d Scatter Plot', 'value': 'scatter'}],
+                       id="3dplot"),
+        dcc.Graph(id='scatter3d')
+
     ])
 
 ])
+
+
+@app.callback(
+    Output('scatter3d', 'figure'),
+    Input('day-slider', 'value')
+)
+def update_scatter3d(date):
+    selected_date = getDates(df_gps)[date]
+    df_filt = df_gps[df_gps['date'] == selected_date]
+
+    fig = go.Figure()
+
+    # Load data
+    abila_map = gpd.read_file('abila_clean.shp')
+    # Reproject to WGS84 (EPSG:4326)
+    abila_map = abila_map.to_crs("EPSG:4326")
+
+    # Create a list to hold all the line segments
+    segments = []
+
+    for line in abila_map.geometry:
+        # Get the coordinates of the line
+        coords = list(line.coords)
+
+        # For each pair of points, create a separate line segment
+        for i in range(len(coords) - 1):
+            # Each segment is a dictionary with x, y and z (0) arrays of two points
+            segment = dict(
+                x=[coords[i][0], coords[i+1][0]],  # swap x and y
+                y=[coords[i][1], coords[i+1][1]],
+                z=[0, 0]
+            )
+            # Add the segment to the list
+            segments.append(segment)
+
+    # Create scatter plot for each segment in the shapefile
+    for segment in segments:
+        shapefile_lines = go.Scatter3d(
+            x=segment['x'],
+            y=segment['y'],
+            z=segment['z'],
+            mode='lines',
+            line=dict(color='black', width=1),
+            showlegend=False
+        )
+        fig.add_trace(shapefile_lines)
+
+    # Create custom hover text
+    hover_text = []
+    for index, row in df_filt.iterrows():
+        hover_text.append(f"Time: {row['time'].strftime('%H:%M:%S')}")
+
+    # Create scatter plot for the GPS data
+    gps_scatter = go.Scatter3d(
+        x=df_filt['long'],
+        y=df_filt['lat'],
+        z=df_filt['time'].apply(
+            lambda t: t.hour * 3600 + t.minute * 60 + t.second),
+        mode='markers',
+        marker=dict(size=1, color=df_filt['id'], colorscale='Rainbow'),
+        text=hover_text,  # add custom hover text here
+        hoverinfo='text',
+        hovertemplate="Longitude: %{x}<br>Latitude: %{y}<br>Time: %{text}<extra></extra>",
+        name='GPS'
+    )
+
+    fig.add_trace(gps_scatter)
+
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title='long'),
+            yaxis=dict(title='lat'),
+            zaxis=dict(title='time',
+                       tickmode='array',
+                       tickvals=list(range(0, 86401, 21600)),
+                       ticktext=[seconds_to_time(i) for i in range(0, 86401, 21600)])  # convert seconds to time string
+        ),
+        height=700
+    )
+
+    return fig
 
 
 @app.callback(
