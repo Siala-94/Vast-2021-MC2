@@ -36,32 +36,28 @@ def read_gps_data(data):
     df_gps = pd.read_csv('gps.csv')
     df_gps['Timestamp'] = pd.to_datetime(
         df_gps['Timestamp'], format='%m/%d/%Y %H:%M:%S')
-    df_gps.sort_values(by='Timestamp', inplace=True)
 
-    # Read the car assignment data from the CSV file
-    df_car = pd.read_csv('car-assignments.csv')
+    df_gps['date'] = df_gps["Timestamp"].dt.date
+    df_gps['time'] = df_gps["Timestamp"].dt.time
+    df_gps.drop("Timestamp", axis=1, inplace=True)
 
-    # Merge the data frames based on the "id" column
-    df_merged = pd.merge(df_gps, df_car, left_on='id', right_on='CarID')
-
-    df_merged.drop("CarID", axis=1, inplace=True)
-
-    df_merged['date'] = df_merged["Timestamp"].dt.date
-    df_merged['time'] = df_merged["Timestamp"].dt.time
-    df_merged.drop("Timestamp", axis=1, inplace=True)
-
-    return df_merged
+    return df_gps
 
 
 def getHeatmap(df):
-    df_sorted = df.sort_values(by='date')
+    df_count = df.groupby('location').size().reset_index(name='count')
+    df_sorted = df_count.sort_values(by='count', ascending=False)
 
     fig = px.density_heatmap(
-        df_sorted,
+        df,
         x="date", y="location",
         color_continuous_scale='YlOrRd',
         nbinsx=len(df['date'].unique()),
-        nbinsy=len(df['location'].unique()))
+        nbinsy=len(df['location'].unique()),
+        category_orders={"location": df_sorted['location']})  # Set category order based on count
+
+    # Reorder the locations based on the accumulated count
+    fig.update_yaxes(categoryarray=df_sorted['location'])
 
     return fig
 
@@ -78,6 +74,10 @@ def get4ccnum(df):
     return df['last4ccnum'].unique()
 
 
+def getnames(df):
+    return df['FullName'].unique()
+
+
 def seconds_to_time(seconds):
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
@@ -86,9 +86,72 @@ def seconds_to_time(seconds):
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
 
 
-df = read_data("cc_data.csv", "loyalty_data.csv")
+def getsegments(map):
+    segments = []
 
+    for line in map.geometry:
+        # Get the coordinates of the line
+        coords = list(line.coords)
+
+        # For each pair of points, create a separate line segment
+        for i in range(len(coords) - 1):
+            # Each segment is a dictionary with x, y and z (0) arrays of two points
+            segment = dict(
+                x=[coords[i][0], coords[i+1][0]],  # swap x and y
+                y=[coords[i][1], coords[i+1][1]],
+                z=[0, 0]
+            )
+            # Add the segment to the list
+            segments.append(segment)
+    return segments
+
+
+def get3dscatter(df):
+
+    return go.Scatter3d(
+        x=df['long'],
+        y=df['lat'],
+        z=[0]*len(df),  # Add the markers on the ground (z=0)
+        mode='markers+text',
+        marker=dict(size=5, color='red'),
+        # This adds the location names next to the markers
+        text=df['location'],
+
+        hoverinfo='text',
+        hovertemplate="Longitude: %{x}<br>Latitude: %{y}<br>Location: %{text}<extra></extra>"
+    )
+
+
+def getGpsScatter(df, numeric_values):
+    return go.Scatter3d(
+        x=df['long'],
+        y=df['lat'],
+        z=df['time'].apply(
+            lambda t: t.hour * 3600 + t.minute * 60 + t.second),
+        mode='markers+lines',
+        marker=dict(
+            size=3,
+            color=numeric_values,  # Use numeric values for color
+            colorscale='Viridis',  # Choose a colorscale
+            colorbar=dict(title='FullName')  # Add colorbar title
+        ),
+        hoverinfo='text',
+        # Include FullName in hovertemplate
+        hovertemplate="Longitude: %{x}<br>Latitude: %{y}<br>Time: %{text}<br>FullName: %{marker.color}<extra></extra>",
+        # Set text attribute to FullName for hover text
+        text=df['FullName'],
+    )
+
+
+# df = read_data("cc_data.csv", "loyalty_data.csv")
+df = pd.read_csv("cards.csv")
 df_gps = read_gps_data('gps.csv')
+df_loc = pd.read_csv('location_coordinate.csv')
+# Load map
+abila_map = gpd.read_file('abila_clean.shp')
+# Reproject to WGS84 (EPSG:4326)
+abila_map = abila_map.to_crs("EPSG:4326")
+
 
 app = Dash(__name__)
 
@@ -100,17 +163,21 @@ app.layout = html.Div([
     html.Div([
         # multi select
         html.Div([
-            html.H6("choose a location to investigate", style={
-                'text-align': 'center', 'font-family': 'sans-serif'}),
-            dcc.Dropdown(options=[{'label': loc, 'value': loc}
-                                  for loc in getLocations(df)], id="multi", multi=True)
+            html.H6("choose a location to investigate",
+                    style={'text-align': 'center', 'font-family': 'sans-serif'}),
+            dcc.Dropdown(
+                options=[loc for loc in getLocations(df)],
+                id="multi",
+                multi=True)
         ], style={'width': '50%', 'display': 'inline-block'}),
 
         html.Div([
-            html.H6("choose a creditcard to investigate", style={
-                'text-align': 'center', 'font-family': 'sans-serif'}),
-            dcc.Dropdown(options=[{'label': loc, 'value': loc}
-                                  for loc in get4ccnum(df)], id="4cc", multi=True)
+            html.H6("choose a creditcard to investigate",
+                    style={'text-align': 'center', 'font-family': 'sans-serif'}),
+            dcc.Dropdown(
+                options=[num for num in get4ccnum(df)],
+                id="4cc",
+                multi=True)
         ], style={'width': '50%', 'display': 'inline-block'})
 
     ]),
@@ -119,24 +186,24 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             html.H6("choose y-axis"),
-            dcc.RadioItems(options=[{'label': 'Time', 'value': 'time'},
-                                    {'label': 'Location', 'value': 'location'}],
+            dcc.RadioItems(options=['Time', 'Location'],
                            id="y-axis",
-                           style={'display': 'inline-block'})
+                           value="time"
+                           )
         ], style={'width': '33%', 'display': 'inline-block'}),
         html.Div([
             html.H6("choose x-axis"),
-            dcc.RadioItems(options=[{'label': 'Time', 'value': 'time'},
-                                    {'label': 'Location', 'value': 'location'}],
+            dcc.RadioItems(options=['Time', 'Location'],
                            id="x-axis",
-                           style={'display': 'inline-block'})
+                           value="location"
+                           )
         ], style={'width': '33%', 'display': 'inline-block'}),
         html.Div([
             html.H6("choose type of plot"),
-            dcc.RadioItems(options=[{'label': 'Line Plot', 'value': 'line'},
-                                    {'label': 'Scatter Plot', 'value': 'scatter'}],
+            dcc.RadioItems(options=['Line Plot', 'Scatter Plot'],
                            id="type-plot",
-                           style={'display': 'inline-block'})
+                           value="scatter"
+                           )
         ], style={'width': '33%', 'display': 'inline-block'})
     ]),
 
@@ -162,10 +229,20 @@ app.layout = html.Div([
     ]),
 
     html.Div([
-        dcc.RadioItems(options=[{'label': '3d line Plot', 'value': 'line'},
-                                {'label': '3d Scatter Plot', 'value': 'scatter'}],
-                       id="3dplot"),
-        dcc.Graph(id='scatter3d')
+        dcc.Dropdown(options=[name for name in getnames(df_gps)],
+                     id="names",
+                     value=["Isande Borrasca"],
+                     multi=True),
+        dcc.Graph(id='scatter3d'),
+        dcc.RangeSlider(
+            id='time-slider',
+            min=0,
+            max=23,
+            value=[0, 23],
+            marks={i: f'{i}:00' for i in range(0, 24)},
+            step=1
+        ),
+
 
     ])
 
@@ -174,36 +251,30 @@ app.layout = html.Div([
 
 @app.callback(
     Output('scatter3d', 'figure'),
-    Input('day-slider', 'value')
+    Input('day-slider', 'value'),
+    Input('time-slider', 'value'),
+    Input('names', 'value')  # Add input for filtering by FullName
 )
-def update_scatter3d(date):
+def update_scatter3d(date, time_range, full_names):  # Include full_names parameter
+
+    # FILTER the data
+    # filter based on date
     selected_date = getDates(df_gps)[date]
     df_filt = df_gps[df_gps['date'] == selected_date]
+    # filter based on time
+    # Convert the time_range values to time
+    start_time = datetime.time(time_range[0])
+    end_time = datetime.time(time_range[1])
+    df_filt = df_filt[(df_filt['time'] >= start_time)
+                      & (df_filt['time'] <= end_time)]
+    # Filter the data based on selected full names
+    df_filt = df_filt[df_filt['FullName'].isin(
+        full_names)] if full_names else df_filt
 
     fig = go.Figure()
 
-    # Load data
-    abila_map = gpd.read_file('abila_clean.shp')
-    # Reproject to WGS84 (EPSG:4326)
-    abila_map = abila_map.to_crs("EPSG:4326")
-
     # Create a list to hold all the line segments
-    segments = []
-
-    for line in abila_map.geometry:
-        # Get the coordinates of the line
-        coords = list(line.coords)
-
-        # For each pair of points, create a separate line segment
-        for i in range(len(coords) - 1):
-            # Each segment is a dictionary with x, y and z (0) arrays of two points
-            segment = dict(
-                x=[coords[i][0], coords[i+1][0]],  # swap x and y
-                y=[coords[i][1], coords[i+1][1]],
-                z=[0, 0]
-            )
-            # Add the segment to the list
-            segments.append(segment)
+    segments = getsegments(abila_map)
 
     # Create scatter plot for each segment in the shapefile
     for segment in segments:
@@ -220,21 +291,15 @@ def update_scatter3d(date):
     # Create custom hover text
     hover_text = []
     for index, row in df_filt.iterrows():
-        hover_text.append(f"Time: {row['time'].strftime('%H:%M:%S')}")
+        hover_text.append(
+            f"FullName: {row['FullName']}, Time: {row['time'].strftime('%H:%M:%S')}")
+    # Map FullName to numeric values using a categorical colormap
+    unique_names = df_filt['FullName'].unique()
+    name_to_numeric = {name: i for i, name in enumerate(unique_names)}
+    numeric_values = df_filt['FullName'].map(name_to_numeric)
 
     # Create scatter plot for the GPS data
-    gps_scatter = go.Scatter3d(
-        x=df_filt['long'],
-        y=df_filt['lat'],
-        z=df_filt['time'].apply(
-            lambda t: t.hour * 3600 + t.minute * 60 + t.second),
-        mode='markers',
-        marker=dict(size=1, color=df_filt['id'], colorscale='Rainbow'),
-        text=hover_text,  # add custom hover text here
-        hoverinfo='text',
-        hovertemplate="Longitude: %{x}<br>Latitude: %{y}<br>Time: %{text}<extra></extra>",
-        name='GPS'
-    )
+    gps_scatter = getGpsScatter(df_filt, numeric_values)
 
     fig.add_trace(gps_scatter)
 
@@ -250,7 +315,26 @@ def update_scatter3d(date):
         height=700
     )
 
+    # Add the new data points from the CSV file to the plot
+    loc_scatter = get3dscatter(df_loc)
+
+    fig.add_trace(loc_scatter)
+
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title='long'),
+            yaxis=dict(title='lat'),
+            zaxis=dict(title='time',
+                       tickmode='array',
+                       tickvals=list(range(0, 86401, 21600)),
+                       ticktext=[seconds_to_time(i) for i in range(0, 86401, 21600)])  # convert seconds to time string
+        ),
+        height=700
+    )
+
     return fig
+
+# bar
 
 
 @app.callback(
@@ -258,7 +342,7 @@ def update_scatter3d(date):
     Input('day-slider', 'value'),
     Input('multi', 'value')
 )
-def update_heatmap(date, locations):
+def update_bar(date, locations):
     selected_date = getDates(df)[date]
 
     df_filt = df[df['date'] == selected_date]
@@ -285,6 +369,8 @@ def update_heatmap(date, locations):
 
     return fig
 
+# 2d plot
+
 
 @app.callback(
     Output('scatterplot', 'figure'),
@@ -304,6 +390,7 @@ def update_plot(date, locations, num, yaxis, xaxis, plot):
         locations)] if locations else df_filt
 
     df_new = df_new[df_new['last4ccnum'].isin(num)] if num else df_new
+    df_new['last4ccnum'] = df_new['last4ccnum'].astype(str)
 
     # Convert time to datetime data type
     df_new['time'] = pd.to_datetime(df_new['time'])
