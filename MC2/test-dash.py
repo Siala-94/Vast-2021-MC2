@@ -4,6 +4,23 @@ import plotly.graph_objects as go
 import plotly.express as px
 import geopandas as gpd
 import datetime
+import random
+import colorsys
+
+# Define a function that generates a dictionary mapping each FullName to a unique color
+
+
+def create_color_map(df):
+    unique_names = df['FullName'].unique()
+    N = len(unique_names)
+    HSV_tuples = [(x * 1.0 / N, 0.5, 0.5) for x in range(N)]
+    RGB_tuples = map(lambda x: colorsys.hsv_to_rgb(*x), HSV_tuples)
+    hex_colors = [
+        f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}" for r, g, b in RGB_tuples]
+    random.shuffle(hex_colors)  # Shuffle the colors to create some variation
+
+    color_map = dict(zip(unique_names, hex_colors))
+    return color_map
 
 
 def read_data(data1, data2):
@@ -112,8 +129,8 @@ def get3dscatter(df):
         x=df['long'],
         y=df['lat'],
         z=[0]*len(df),  # Add the markers on the ground (z=0)
-        mode='markers+text',
-        marker=dict(size=5, color='red'),
+        mode='markers',
+        marker=dict(size=4, color='red'),
         # This adds the location names next to the markers
         text=df['location'],
 
@@ -122,24 +139,36 @@ def get3dscatter(df):
     )
 
 
-def getGpsScatter(df, numeric_values):
+def getGpsScatter(df, color_map, dim):
+    # Calculate the time in seconds as before
+    temp = df['time'].apply(lambda t: t.hour * 3600 + t.minute * 60 + t.second)
+
+    # Convert time to a formatted string
+    time_str = df['time'].apply(lambda t: t.strftime('%H:%M:%S'))
+
     return go.Scatter3d(
         x=df['long'],
         y=df['lat'],
-        z=df['time'].apply(
-            lambda t: t.hour * 3600 + t.minute * 60 + t.second),
-        mode='markers+lines',
+        z=[0]*len(df) if dim == '2D' else temp,
+        mode='markers',
         marker=dict(
             size=3,
-            color=numeric_values,  # Use numeric values for color
-            colorscale='Viridis',  # Choose a colorscale
-            colorbar=dict(title='FullName')  # Add colorbar title
+            # Color code by FullName
+            color=df['FullName'].apply(lambda x: color_map[x]),
         ),
         hoverinfo='text',
-        # Include FullName in hovertemplate
-        hovertemplate="Longitude: %{x}<br>Latitude: %{y}<br>Time: %{text}<br>FullName: %{marker.color}<extra></extra>",
-        # Set text attribute to FullName for hover text
+        hovertemplate=(
+            "Longitude: %{x}<br>"
+            "Latitude: %{y}<br>"
+            "Name: %{text}<br>"
+            "Time: %{customdata[0]}<br>"
+            "Employment Type: %{customdata[1]}<br>"
+            "Employment Title: %{customdata[2]}<extra></extra>"
+        ),
         text=df['FullName'],
+        # Here we use customdata to pass time_str, CurrentEmploymentType, and CurrentEmploymentTitle to hovertemplate
+        customdata=df[['time', 'CurrentEmploymentType',
+                       'CurrentEmploymentTitle']].values.tolist(),
     )
 
 
@@ -186,14 +215,14 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             html.H6("choose y-axis"),
-            dcc.RadioItems(options=['Time', 'Location'],
+            dcc.RadioItems(options=['time', 'location'],
                            id="y-axis",
                            value="time"
                            )
         ], style={'width': '33%', 'display': 'inline-block'}),
         html.Div([
             html.H6("choose x-axis"),
-            dcc.RadioItems(options=['Time', 'Location'],
+            dcc.RadioItems(options=['time', 'location'],
                            id="x-axis",
                            value="location"
                            )
@@ -202,7 +231,7 @@ app.layout = html.Div([
             html.H6("choose type of plot"),
             dcc.RadioItems(options=['Line Plot', 'Scatter Plot'],
                            id="type-plot",
-                           value="scatter"
+                           value="Scatter Plot"
                            )
         ], style={'width': '33%', 'display': 'inline-block'})
     ]),
@@ -231,8 +260,12 @@ app.layout = html.Div([
     html.Div([
         dcc.Dropdown(options=[name for name in getnames(df_gps)],
                      id="names",
-                     value=["Isande Borrasca"],
+                     value=["Ada Campo-Corrente"],
                      multi=True),
+        dcc.RadioItems(options=['2D', '3D'],
+                       id="dimension",
+                       value='2D'
+                       ),
         dcc.Graph(id='scatter3d'),
         dcc.RangeSlider(
             id='time-slider',
@@ -253,9 +286,10 @@ app.layout = html.Div([
     Output('scatter3d', 'figure'),
     Input('day-slider', 'value'),
     Input('time-slider', 'value'),
-    Input('names', 'value')  # Add input for filtering by FullName
+    Input('names', 'value'),  # Add input for filtering by FullName
+    Input('dimension', 'value')
 )
-def update_scatter3d(date, time_range, full_names):  # Include full_names parameter
+def update_scatter3d(date, time_range, full_names, dim):  # Include full_names parameter
 
     # FILTER the data
     # filter based on date
@@ -271,6 +305,7 @@ def update_scatter3d(date, time_range, full_names):  # Include full_names parame
     df_filt = df_filt[df_filt['FullName'].isin(
         full_names)] if full_names else df_filt
 
+    color_map = create_color_map(df_filt)
     fig = go.Figure()
 
     # Create a list to hold all the line segments
@@ -295,13 +330,14 @@ def update_scatter3d(date, time_range, full_names):  # Include full_names parame
             f"FullName: {row['FullName']}, Time: {row['time'].strftime('%H:%M:%S')}")
     # Map FullName to numeric values using a categorical colormap
     unique_names = df_filt['FullName'].unique()
-    name_to_numeric = {name: i for i, name in enumerate(unique_names)}
-    numeric_values = df_filt['FullName'].map(name_to_numeric)
-
     # Create scatter plot for the GPS data
-    gps_scatter = getGpsScatter(df_filt, numeric_values)
+    gps_scatter = getGpsScatter(df_filt, color_map, dim)
 
-    fig.add_trace(gps_scatter)
+    for name in unique_names:
+        df_filt_name = df_filt[df_filt['FullName'] == name]
+        gps_scatter = getGpsScatter(df_filt_name, color_map, dim)
+        gps_scatter['name'] = name  # Set name for each trace
+        fig.add_trace(gps_scatter)
 
     fig.update_layout(
         scene=dict(
@@ -398,7 +434,7 @@ def update_plot(date, locations, num, yaxis, xaxis, plot):
 
     fig = None
 
-    if plot == "line":
+    if plot == "Line Plot":
         fig = px.line(
             df_new,
             x=xaxis,
@@ -414,7 +450,6 @@ def update_plot(date, locations, num, yaxis, xaxis, plot):
             df_new,
             x=xaxis,
             y=yaxis,
-            size="price",
             color="last4ccnum",
             color_discrete_sequence=px.colors.qualitative.Safe,  # Set a fixed color sequence
             category_orders={'location': sorted(df_new['location'].unique()),
