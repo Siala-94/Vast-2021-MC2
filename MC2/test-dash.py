@@ -470,7 +470,7 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
                              'last4ccnum': sorted(df_new['last4ccnum'].unique())}
         )
     else:
-        if size != 'price':
+        if size != 'Price':
             fig = px.scatter(
                 df_new,
                 x=xaxis,
@@ -508,8 +508,9 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
         "y: %{y}<br>"
         "last4ccnum: %{customdata[0]}<br>"
         "loyaltynum: %{customdata[1]}<br>"
-        "FullName: %{customdata[2]}<extra></extra>"
-    ), customdata=df_new[['last4ccnum', 'loyaltynum', 'FullName']].values)
+        "price: %{customdata[2]}<br>"
+        "FullName: %{customdata[3]}<extra></extra>"
+    ), customdata=df_new[['last4ccnum', 'loyaltynum', 'price', 'FullName']].values)
 
     return fig
 
