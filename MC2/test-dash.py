@@ -255,7 +255,7 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             dcc.Graph(id="scatterplot")
-        ], style={'width': '80%', 'display': 'inline-block'}),
+        ], style={'width': '80%', 'height': '100%', 'display': 'inline-block'}),
         html.Div([
             dcc.Graph(id="heatmap")
         ], style={'width': '20%', 'display': 'inline-block'}),
@@ -283,7 +283,7 @@ app.layout = html.Div([
     html.Div([
         dcc.Dropdown(options=[name for name in getnames(df_gps)],
                      id="names",
-                     value=["Ada Campo-Corrente"],
+                     value=["Nils Calixto", "Loreto Bodrogi", "Minke Mies"],
                      multi=True),
         dcc.RadioItems(options=['2D', '3D'],
                        id="dimension",
