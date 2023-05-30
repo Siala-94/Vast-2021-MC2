@@ -6,6 +6,7 @@ import geopandas as gpd
 import datetime
 import random
 import colorsys
+import numpy as np
 
 # Define a function that generates a dictionary mapping each FullName to a unique color
 
@@ -219,28 +220,42 @@ app.layout = html.Div([
                            id="y-axis",
                            value="time"
                            )
-        ], style={'width': '33%', 'display': 'inline-block'}),
+        ], style={'width': '20%', 'display': 'inline-block'}),
         html.Div([
             html.H6("choose x-axis"),
             dcc.RadioItems(options=['time', 'location'],
                            id="x-axis",
                            value="location"
                            )
-        ], style={'width': '33%', 'display': 'inline-block'}),
+        ], style={'width': '20%', 'display': 'inline-block'}),
         html.Div([
             html.H6("choose type of plot"),
             dcc.RadioItems(options=['Line Plot', 'Scatter Plot'],
                            id="type-plot",
                            value="Scatter Plot"
                            )
-        ], style={'width': '33%', 'display': 'inline-block'})
+        ], style={'width': '20%', 'display': 'inline-block'}),
+        html.Div([
+            html.H6("choose size "),
+            dcc.RadioItems(options=['Price', 'None'],
+                           id="size",
+                           value="None"
+                           )
+        ], style={'width': '20%', 'display': 'inline-block'}),
+        html.Div([
+            html.H6("choose cards "),
+            dcc.RadioItems(options=['credit', 'loyaltynum'],
+                           id="card",
+                           value="credit"
+                           )
+        ], style={'width': '20%', 'display': 'inline-block'})
     ]),
 
     # graph and slider
     html.Div([
         html.Div([
             dcc.Graph(id="scatterplot")
-        ], style={'width': '80%', 'display': 'inline-block'}),
+        ], style={'width': '80%', 'height': '100%', 'display': 'inline-block'}),
         html.Div([
             dcc.Graph(id="heatmap")
         ], style={'width': '20%', 'display': 'inline-block'}),
@@ -253,20 +268,7 @@ app.layout = html.Div([
             marks={i: str(date.strftime("%b %d"))
                    for i, date in enumerate(getDates(df_gps))},
             step=1
-        )
-
-    ]),
-
-    html.Div([
-        dcc.Dropdown(options=[name for name in getnames(df_gps)],
-                     id="names",
-                     value=["Ada Campo-Corrente"],
-                     multi=True),
-        dcc.RadioItems(options=['2D', '3D'],
-                       id="dimension",
-                       value='2D'
-                       ),
-        dcc.Graph(id='scatter3d'),
+        ),
         dcc.RangeSlider(
             id='time-slider',
             min=0,
@@ -275,6 +277,20 @@ app.layout = html.Div([
             marks={i: f'{i}:00' for i in range(0, 24)},
             step=1
         ),
+
+    ]),
+
+    html.Div([
+        dcc.Dropdown(options=[name for name in getnames(df_gps)],
+                     id="names",
+                     value=["Nils Calixto", "Loreto Bodrogi", "Minke Mies"],
+                     multi=True),
+        dcc.RadioItems(options=['2D', '3D'],
+                       id="dimension",
+                       value='2D'
+                       ),
+        dcc.Graph(id='scatter3d'),
+
 
 
     ])
@@ -415,55 +431,89 @@ def update_bar(date, locations):
     Input('4cc', 'value'),
     Input('y-axis', 'value'),
     Input('x-axis', 'value'),
-    Input('type-plot', 'value')
-
+    Input('type-plot', 'value'),
+    Input('size', 'value'),
+    Input('card', 'value'),
+    Input('time-slider', 'value')
 )
-def update_plot(date, locations, num, yaxis, xaxis, plot):
+def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range):
     selected_date = getDates(df)[date]
+    # Make a copy of the filtered dataframe
+    df_filt = df[df['date'] == selected_date].copy()
 
-    df_filt = df[df['date'] == selected_date]
+    # Filter by time range
+    start_time = f"{time_range[0]:02d}:00:00"
+    end_time = f"{time_range[1]:02d}:59:59"
+    df_filt['time'] = pd.to_datetime(
+        df_filt['time'])  # Convert 'time' to datetime
+    df_filt = df_filt[(df_filt['time'].dt.strftime('%H:%M:%S') >= start_time) & (
+        df_filt['time'].dt.strftime('%H:%M:%S') <= end_time)]
+
+    # Filter by locations
     df_new = df_filt[df_filt['location'].isin(
-        locations)] if locations else df_filt
+        locations)] if locations else df_filt.copy()
 
-    df_new = df_new[df_new['last4ccnum'].isin(num)] if num else df_new
+    # Filter by credit card numbers
+    df_new = df_new[df_new['last4ccnum'].isin(num)] if num else df_new.copy()
     df_new['last4ccnum'] = df_new['last4ccnum'].astype(str)
 
-    # Convert time to datetime data type
-    df_new['time'] = pd.to_datetime(df_new['time'])
-    df_new = df_new.sort_values(by='time')  # Sort by time
-
     fig = None
-
     if plot == "Line Plot":
         fig = px.line(
             df_new,
             x=xaxis,
             y=yaxis,
             text="price",
-            color="last4ccnum",
-            color_discrete_sequence=px.colors.qualitative.Safe,  # Set a fixed color sequence
+            color="last4ccnum" if card == 'credit' else "loyaltynum",
+            color_discrete_sequence=px.colors.qualitative.Safe,
             category_orders={xaxis: sorted(df_new[xaxis].unique()),
-                             'last4ccnum': sorted(df_new['last4ccnum'].unique())}  # Set category orders for x-axis and last4ccnum
+                             'last4ccnum': sorted(df_new['last4ccnum'].unique())}
         )
     else:
-        fig = px.scatter(
-            df_new,
-            x=xaxis,
-            y=yaxis,
-            color="last4ccnum",
-            color_discrete_sequence=px.colors.qualitative.Safe,  # Set a fixed color sequence
-            category_orders={'location': sorted(df_new['location'].unique()),
-                             'last4ccnum': sorted(df_new['last4ccnum'].unique())}  # Set category orders for location and last4ccnum
-        )
+        if size != 'Price':
+            fig = px.scatter(
+                df_new,
+                x=xaxis,
+                y=yaxis,
+                color="last4ccnum" if card == 'credit' else "loyaltynum",
+                color_discrete_sequence=px.colors.qualitative.Safe,
+                category_orders={'location': sorted(df_new['location'].unique()),
+                                 'last4ccnum': sorted(df_new['last4ccnum'].unique())}
+            )
+        else:
+            fig = px.scatter(
+                df_new,
+                x=xaxis,
+                y=yaxis,
+                size='price',
+                color="last4ccnum" if card == 'credit' else "loyaltynum",
+                color_discrete_sequence=px.colors.qualitative.Safe,
+                category_orders={'location': sorted(df_new['location'].unique()),
+                                 'last4ccnum': sorted(df_new['last4ccnum'].unique())}
+            )
 
-    fig.update_layout(transition_duration=500)
+    fig.update_layout(
+        transition_duration=500,
+        hoverlabel=dict(
+            bgcolor="white",  # Set the background color of the hover label
+            font_size=12,  # Set the font size
+            font_family="Arial"  # Set the font family of the hover label text
+        )
+    )
+
+    # Update the hovertemplate to display "last4ccnum", "loyaltynum", and "FullName"
+    # Update the hovertemplate to display "last4ccnum", "loyaltynum", and "FullName"
+    fig.update_traces(hovertemplate=(
+        "x: %{x}<br>"
+        "y: %{y}<br>"
+        "last4ccnum: %{customdata[0]}<br>"
+        "loyaltynum: %{customdata[1]}<br>"
+        "price: %{customdata[2]}<br>"
+        "FullName: %{customdata[3]}<extra></extra>"
+    ), customdata=df_new[['last4ccnum', 'loyaltynum', 'price', 'FullName']].values)
 
     return fig
 
 
-# ...
-
-
-# ...
 if __name__ == '__main__':
     app.run_server(debug=True)
