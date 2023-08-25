@@ -187,7 +187,7 @@ app = Dash(__name__)
 
 app.layout = html.Div([
     html.Div([
-        dcc.Graph(figure=getHeatmap(df))
+
     ]),
 
     html.Div([
@@ -205,7 +205,7 @@ app.layout = html.Div([
             html.H6("choose a creditcard to investigate",
                     style={'text-align': 'center', 'font-family': 'sans-serif'}),
             dcc.Dropdown(
-                options=[num for num in get4ccnum(df)],
+                options=[num for num in getnames(df)],
                 id="4cc",
                 multi=True)
         ], style={'width': '50%', 'display': 'inline-block'})
@@ -454,20 +454,23 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
         locations)] if locations else df_filt.copy()
 
     # Filter by credit card numbers
-    df_new = df_new[df_new['last4ccnum'].isin(num)] if num else df_new.copy()
-    df_new['last4ccnum'] = df_new['last4ccnum'].astype(str)
+    df_new = df_new[df_new['FullName'].isin(num)] if num else df_new.copy()
+    df_new['FullName'] = df_new['FullName'].astype(str)
 
     fig = None
+    custom_data = df_new[['last4ccnum',
+                          'loyaltynum', 'price', 'FullName']].values
+
     if plot == "Line Plot":
         fig = px.line(
             df_new,
             x=xaxis,
             y=yaxis,
             text="price",
-            color="last4ccnum" if card == 'credit' else "loyaltynum",
+            color="FullName" if card == 'credit' else "loyaltynum",
             color_discrete_sequence=px.colors.qualitative.Safe,
             category_orders={xaxis: sorted(df_new[xaxis].unique()),
-                             'last4ccnum': sorted(df_new['last4ccnum'].unique())}
+                             'FullName': sorted(df_new['FullName'].unique())}
         )
     else:
         if size != 'Price':
@@ -475,10 +478,10 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
                 df_new,
                 x=xaxis,
                 y=yaxis,
-                color="last4ccnum" if card == 'credit' else "loyaltynum",
+                color="FullName" if card == 'credit' else "loyaltynum",
                 color_discrete_sequence=px.colors.qualitative.Safe,
                 category_orders={'location': sorted(df_new['location'].unique()),
-                                 'last4ccnum': sorted(df_new['last4ccnum'].unique())}
+                                 'FullName': sorted(df_new['FullName'].unique())}
             )
         else:
             fig = px.scatter(
@@ -486,10 +489,10 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
                 x=xaxis,
                 y=yaxis,
                 size='price',
-                color="last4ccnum" if card == 'credit' else "loyaltynum",
+                color="FullName" if card == 'credit' else "loyaltynum",
                 color_discrete_sequence=px.colors.qualitative.Safe,
                 category_orders={'location': sorted(df_new['location'].unique()),
-                                 'last4ccnum': sorted(df_new['last4ccnum'].unique())}
+                                 'FullName': sorted(df_new['FullName'].unique())}
             )
 
     fig.update_layout(
@@ -501,16 +504,9 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
         )
     )
 
-    # Update the hovertemplate to display "last4ccnum", "loyaltynum", and "FullName"
-    # Update the hovertemplate to display "last4ccnum", "loyaltynum", and "FullName"
-    fig.update_traces(hovertemplate=(
-        "x: %{x}<br>"
-        "y: %{y}<br>"
-        "last4ccnum: %{customdata[0]}<br>"
-        "loyaltynum: %{customdata[1]}<br>"
-        "price: %{customdata[2]}<br>"
-        "FullName: %{customdata[3]}<extra></extra>"
-    ), customdata=df_new[['last4ccnum', 'loyaltynum', 'price', 'FullName']].values)
+    fig.update_traces(
+        mode='markers+lines',
+        marker={'sizemode': 'area'})
 
     return fig
 
