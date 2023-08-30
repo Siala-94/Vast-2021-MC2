@@ -130,11 +130,12 @@ def get3dscatter(df):
         x=df['long'],
         y=df['lat'],
         z=[0]*len(df),  # Add the markers on the ground (z=0)
-        mode='markers',
+        mode='markers+text',
         marker=dict(size=4, color='red'),
         # This adds the location names next to the markers
         text=df['location'],
-
+        textfont=dict(size=7),
+        textposition="top center",
         hoverinfo='text',
         hovertemplate="Longitude: %{x}<br>Latitude: %{y}<br>Location: %{text}<extra></extra>"
     )
@@ -505,7 +506,7 @@ def update_plot(date, locations, num, yaxis, xaxis, plot, size, card, time_range
     )
 
     fig.update_traces(
-        mode='markers+lines',
+        mode='markers',
         marker={'sizemode': 'area'})
 
     return fig
