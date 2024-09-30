@@ -51,7 +51,7 @@ def read_data(data1, data2):
 def read_gps_data(data):
 
     # Read the GPS data from the CSV file
-    df_gps = pd.read_csv('gps.csv')
+    df_gps = pd.read_csv('data/gps.csv')
     df_gps['Timestamp'] = pd.to_datetime(
         df_gps['Timestamp'], format='%m/%d/%Y %H:%M:%S')
 
@@ -175,11 +175,11 @@ def getGpsScatter(df, color_map, dim):
 
 
 # df = read_data("cc_data.csv", "loyalty_data.csv")
-df = pd.read_csv("cards.csv")
-df_gps = read_gps_data('gps.csv')
-df_loc = pd.read_csv('location_coordinate.csv')
+df = pd.read_csv("data/cards.csv")
+df_gps = read_gps_data('data/gps.csv')
+df_loc = pd.read_csv('data/location_coordinate.csv')
 # Load map
-abila_map = gpd.read_file('abila_clean.shp')
+abila_map = gpd.read_file('map/abila_clean.shp')
 # Reproject to WGS84 (EPSG:4326)
 abila_map = abila_map.to_crs("EPSG:4326")
 
