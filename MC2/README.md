@@ -16,6 +16,4 @@ Can any suspicious activities be identified, and where are these activities occu
 
 ## Project report
 
-Read the full report of the project below
-
-<embed src="TNM098-project-report-2021-MC2.pdf" width="800px" height="600px" />
+[Read the full report of the project]("TNM098-project-report-2021-MC2.pdf")
